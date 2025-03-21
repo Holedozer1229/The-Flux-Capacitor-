@@ -3,12 +3,14 @@ import matplotlib.pyplot as plt
 from scipy.integrate import odeint
 from scipy.signal import resample
 import sounddevice as sd
+import serial
 from mpl_toolkits.mplot3d import Axes3D
 import warnings
+import time
 warnings.filterwarnings('ignore')
 
 class UnifiedSpacetimeSimulator:
-    def __init__(self, resolution=50, lambda_=1.0, kappa=0.1, charge_density=1e-12):
+    def __init__(self, resolution=50, lambda_=1.0, kappa=0.1, charge_density=1e-12, serial_port='COM3', baud_rate=9600):
         """
         Initialize the Flux Capacitor simulator with spacetime and quantum parameters.
         
@@ -17,6 +19,8 @@ class UnifiedSpacetimeSimulator:
             lambda_ (float): Characteristic length scale (m).
             kappa (float): Coupling constant for scalar field.
             charge_density (float): Charge density (C/m^3).
+            serial_port (str): Serial port for Arduino communication (e.g., 'COM3' on Windows, '/dev/ttyUSB0' on Linux).
+            baud_rate (int): Baud rate for serial communication.
         """
         self.resolution = resolution
         self.lambda_ = lambda_
@@ -41,6 +45,15 @@ class UnifiedSpacetimeSimulator:
         self.flux_freq = 0.00083  # 8-track track-switch frequency (Hz)
         self.schumann_amplitudes = [1.0, 0.5, 0.33, 0.25, 0.2]  # Relative amplitudes
         self.pythagorean_ratios = [1.0, 2.0, 3/2, 4/3]  # Harmonic ratios
+
+        # Initialize serial communication with Arduino
+        try:
+            self.arduino = serial.Serial(serial_port, baud_rate, timeout=1)
+            time.sleep(2)  # Wait for Arduino to initialize
+            print(f"Connected to Arduino on {serial_port}")
+        except serial.SerialException as e:
+            print(f"Error connecting to Arduino: {e}")
+            self.arduino = None
 
         self.fabric, self.edges = self.generate_spacetime_fabric()
         self.quantum = self.init_quantum_fields()
@@ -299,19 +312,42 @@ class UnifiedSpacetimeSimulator:
         self.stress_energy = T
         return T
 
-    def generate_flux_signal(self, duration=10.0, sample_rate=44100):
+    def generate_fourier_borel_signal(self, t, num_terms=10):
         """
-        Generate the Flux Capacitor signal for 8-track modulation.
+        Generate a Fourier-Borel signal based on the series.
+        f(x) = (4/π) Σ_{n=1}^∞ (1/(2n-1)) sin((2n-1)x)
+        
+        Args:
+            t (numpy.ndarray): Time array (s).
+            num_terms (int): Number of terms in the Fourier series.
+        
+        Returns:
+            numpy.ndarray: Fourier-Borel signal.
+        """
+        f_signal = np.zeros_like(t, dtype=np.float32)
+        for n in range(1, num_terms + 1):
+            k = 2 * n - 1
+            x = 2 * np.pi * self.flux_freq * t
+            f_signal += (1 / k) * np.sin(k * x)
+        f_signal *= (4 / np.pi)
+        return f_signal
+
+    def generate_flux_signal(self, duration=10.0, sample_rate=44100, num_fourier_terms=10):
+        """
+        Generate the Flux Capacitor signal for 8-track modulation, incorporating the Fourier-Borel transform.
         
         Args:
             duration (float): Signal duration (s).
             sample_rate (int): Audio sample rate (Hz).
+            num_fourier_terms (int): Number of terms in the Fourier-Borel series.
         
         Returns:
             numpy.ndarray: Normalized flux signal.
         """
         t = np.linspace(0, duration, int(sample_rate * duration), False)
         flux_signal = np.zeros_like(t, dtype=np.float32)
+
+        fourier_borel = self.generate_fourier_borel_signal(t, num_terms=num_fourier_terms)
 
         for i in range(self.resolution):
             A_mu_norm = np.linalg.norm(self.em['A_mu'][i])
@@ -326,15 +362,41 @@ class UnifiedSpacetimeSimulator:
             harmonic_scale = self.pythagorean_ratios[i % len(self.pythagorean_ratios)]
             scaled_flux = modulated_flux * harmonic_scale
 
+            scaled_flux += fourier_borel
+
             flux_signal += np.power(np.abs(scaled_flux), 4) * np.sign(scaled_flux)
 
         flux_signal = np.clip(flux_signal, -1.0, 1.0)
         return flux_signal
 
     def activate_flux_capacitor(self, signal, sample_rate=44100):
-        """Activate the Flux Capacitor by outputting the signal to drive the 8-track."""
+        """
+        Activate the Flux Capacitor by outputting the signal to drive the 8-track via Arduino.
+        
+        Args:
+            signal (numpy.ndarray): Flux signal to output.
+            sample_rate (int): Audio sample rate (Hz).
+        """
         print("Activating Flux Capacitor! Powering 8-track with 1.21 gigawatts of flux...")
+        
+        # Play the signal through sounddevice for audio monitoring
         sd.play(signal, sample_rate)
+        
+        # Send the signal to Arduino for hardware control
+        if self.arduino:
+            try:
+                # Scale signal to 0-255 for Arduino PWM
+                scaled_signal = ((signal + 1) * 127.5).astype(int)  # Map [-1, 1] to [0, 255]
+                for value in scaled_signal:
+                    self.arduino.write(bytes([value]))
+                    # Read feedback from hall sensor
+                    if self.arduino.in_waiting > 0:
+                        feedback = self.arduino.readline().decode().strip()
+                        print(f"Hall Sensor Feedback: {feedback}")
+                    time.sleep(1 / sample_rate)  # Match the sample rate timing
+            except serial.SerialException as e:
+                print(f"Error communicating with Arduino: {e}")
+        
         sd.wait()
 
     def evolve_system(self, steps=100):
@@ -448,16 +510,27 @@ class UnifiedSpacetimeSimulator:
         plt.tight_layout()
         plt.show()
 
+    def close(self):
+        """Close the serial connection to the Arduino."""
+        if self.arduino and self.arduino.is_open:
+            self.arduino.close()
+            print("Serial connection closed.")
+
 if __name__ == "__main__":
     # Initialize the Flux Capacitor with default parameters
-    sim = UnifiedSpacetimeSimulator(resolution=8, lambda_=1.0, kappa=0.1, charge_density=1e-15)
+    # Update 'COM3' to your Arduino's serial port (e.g., '/dev/ttyUSB0' on Linux)
+    sim = UnifiedSpacetimeSimulator(resolution=8, lambda_=1.0, kappa=0.1, charge_density=1e-15, serial_port='COM3')
     
-    # Add particles to the simulation
-    for v in sim.fabric:
-        sim.add_particle(position=v, velocity=0.1 * sim.c * np.random.randn(4), charge=1.6e-19)
-    
-    # Evolve the system and activate the Flux Capacitor
-    sim.evolve_system(steps=10)
-    
-    # Visualize the results
-    sim.visualize_unified_fields()
+    try:
+        # Add particles to the simulation
+        for v in sim.fabric:
+            sim.add_particle(position=v, velocity=0.1 * sim.c * np.random.randn(4), charge=1.6e-19)
+        
+        # Evolve the system and activate the Flux Capacitor
+        sim.evolve_system(steps=10)
+        
+        # Visualize the results
+        sim.visualize_unified_fields()
+    finally:
+        # Ensure the serial connection is closed
+        sim.close()
