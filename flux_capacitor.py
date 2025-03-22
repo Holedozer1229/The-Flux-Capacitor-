@@ -12,28 +12,27 @@ logging.basicConfig(filename='flux_capacitor_ctc.log', level=logging.INFO,
                     format='%(asctime)s.%(msecs)03d - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger("FluxCapacitorCTC")
 
-# Configuration with units (aligned with manuscript)
+# Configuration
 CONFIG = {
-    "resolution": 20,                     # 20-bit lattice per manuscript, dimensionless
-    "lambda_": 2.72,                      # m, characteristic length scale
-    "kappa": 0.1,                         # dimensionless coupling constant
-    "charge_density": 1e-12,              # C/m^3
-    "em_strength": 0.1,                   # V/m, adjusted for ~0.1 Tesla electromagnet
-    "j4_coupling_factor": 1e-18,          # m^8 s^4 C^-4
-    "time_delay_steps": 3,                # dimensionless, CTC delay
-    "ctc_feedback_factor": 5.0,           # dimensionless, per manuscript
-    "entanglement_factor": 0.2,           # dimensionless
-    "nodes": 16,                          # dimensionless, spin network nodes
-    "alpha_em": 1/137,                    # dimensionless, fine-structure constant
-    "phi_N_evolution_factor": 1e-6,       # dimensionless
-    "steps": 199,                         # dimensionless, per manuscript test
-    "swarm_size": 5,                      # dimensionless
-    "max_iterations": 200,                # dimensionless
-    "charge": 1.0                         # C
+    "resolution": 20,
+    "lambda_": 2.72,
+    "kappa": 0.1,
+    "charge_density": 1e-12,
+    "em_strength": 0.1,
+    "j4_coupling_factor": 1e-16,  # Enhanced
+    "time_delay_steps": 3,
+    "ctc_feedback_factor": 5.0,
+    "entanglement_factor": 0.5,   # Increased
+    "nodes": 16,
+    "alpha_em": 1/137,
+    "phi_N_evolution_factor": 1e-6,
+    "steps": 199,
+    "swarm_size": 5,
+    "max_iterations": 200,
+    "charge": 1.0
 }
 
-# Global variables
-RS = 2.0  # m, spatial scale
+RS = 2.0
 TARGET_PHYSICAL_STATE = int(time.time() * 1000)
 START_TIME = time.perf_counter_ns() / 1e9
 KNOWN_STATE = int(START_TIME * 1000) % 2**32
@@ -78,7 +77,7 @@ class CTCTetrahedralField:
                 Δx = self.coordinates[j] - self.coordinates[i]
                 distance = np.linalg.norm(Δx)
                 if distance > 0:
-                    H[i, j] = H[j, i] = 1j / (distance + 1e-10)
+                    H[i, j] = H[j, i] = 1j * 10 / (distance + 1e-10)  # Enhanced coupling
         np.fill_diagonal(H, -1j * np.linalg.norm(self.coordinates[:, :3], axis=1))
         return H
 
@@ -89,43 +88,37 @@ class UnifiedSpacetimeSimulator:
     def __init__(self, resolution=CONFIG["resolution"], lambda_=CONFIG["lambda_"], 
                  kappa=CONFIG["kappa"], charge_density=CONFIG["charge_density"],
                  serial_port=None, baud_rate=115200):
-        # Physical constants
-        self.c = 3e8                          # m/s
-        self.G = 6.67430e-11                  # m^3 kg^-1 s^-2
-        self.eps_0 = 8.854187817e-12          # F/m
-        self.hbar = 1.0545718e-34             # J s
-        self.mass_e = 9.11e-31                # kg
-        self.mass_q = 2.2e-30                 # kg
-        self.g_strong = 1.0                   # dimensionless
-        self.g_weak = 0.653                   # dimensionless
+        self.c = 3e8
+        self.G = 6.67430e-11
+        self.eps_0 = 8.854187817e-12
+        self.hbar = 1.0545718e-34
+        self.mass_e = 9.11e-31
+        self.mass_q = 2.2e-30
+        self.g_strong = 1.0
+        self.g_weak = 0.653
 
-        # Simulation parameters
         self.resolution = resolution
-        self.lambda_ = lambda_                # m
-        self.kappa = kappa                    # dimensionless
-        self.charge_density = charge_density  # C/m^3
-        self.dx = 4.0 / (resolution - 1)      # m
-        self.dt = self.dx / (2 * self.c)      # s (CFL condition)
-        self.time = 0.0                       # s
+        self.lambda_ = lambda_
+        self.kappa = kappa
+        self.charge_density = charge_density
+        self.dx = 4.0 / (resolution - 1)
+        self.dt = self.dx / (2 * self.c)
+        self.time = 0.0
 
-        # Audio and modulation parameters
-        self.schumann_freqs = [7.83, 14.3, 20.8, 27.3, 33.8]  # Hz, per manuscript
-        self.flux_freq = 0.00083              # Hz, track-switch frequency
-        self.schumann_amplitudes = [1.0, 0.5, 0.33, 0.25, 0.2]  # dimensionless
-        self.pythagorean_ratios = [1.0, 2.0, 3/2, 4/3]  # dimensionless
+        self.schumann_freqs = [7.83, 14.3, 20.8, 27.3, 33.8]
+        self.flux_freq = 0.00083
+        self.schumann_amplitudes = [1.0, 0.5, 0.33, 0.25, 0.2]
         self.all_flux_signals = []
 
-        # Hardware integration
         self.arduino = None
         if serial_port:
             try:
                 self.arduino = serial.Serial(serial_port, baud_rate, timeout=1)
-                time.sleep(2)  # Allow Arduino to initialize
+                time.sleep(2)
                 print(f"Connected to Arduino on {serial_port}")
             except serial.SerialException as e:
                 print(f"Error connecting to Arduino: {e}")
 
-        # Components
         self.spin_network = SpinNetwork()
         self.tetrahedral_field = CTCTetrahedralField()
         self.quantum_state = np.ones(resolution, dtype=complex) / np.sqrt(resolution)
@@ -139,7 +132,6 @@ class UnifiedSpacetimeSimulator:
         self.flux_amplitude_history = []
         self.steps = []
 
-        # Fields and particles
         self.fabric, self.edges = self.generate_spacetime_fabric()
         self.quantum = self.init_quantum_fields()
         self.em = self.init_em_fields()
@@ -157,7 +149,7 @@ class UnifiedSpacetimeSimulator:
         logger.info(f"Initialized at Time {int(self.time * 1e9)} ns")
 
     def generate_spacetime_fabric(self):
-        scale = RS  # m, per manuscript
+        scale = RS
         vertices = []
         for i in range(self.resolution):
             theta = 2 * np.pi * i / self.resolution
@@ -172,8 +164,8 @@ class UnifiedSpacetimeSimulator:
         return np.array(vertices), list(zip(edges, spins))
 
     def init_quantum_fields(self):
-        r = np.linalg.norm(self.fabric[:, :3], axis=1)  # m
-        phi_N = (self.lambda_ / self.kappa) * (1 - np.exp(-r**2 / self.lambda_**2))  # dimensionless
+        r = np.linalg.norm(self.fabric[:, :3], axis=1)
+        phi_N = (self.lambda_ / self.kappa) * (1 - np.exp(-r**2 / self.lambda_**2))
         return {
             'spinor': np.random.normal(0, 1e-3, (self.resolution, 4)).astype(np.complex64),
             'quark_spinors': np.random.normal(0, 1e-3, (self.resolution, 2, 3, 4)).astype(np.complex64),
@@ -182,11 +174,11 @@ class UnifiedSpacetimeSimulator:
 
     def init_em_fields(self):
         em = {
-            'A_mu': np.zeros((self.resolution, 4), dtype=np.float32),  # V, V s/m
-            'F_munu': np.zeros((self.resolution, 4, 4), dtype=np.float32),  # V/m, T
-            'J': np.zeros((self.resolution, 4), dtype=np.float32),  # C/m^2 s
-            'J4': np.zeros(self.resolution, dtype=np.float32),  # (C/m^2 s)^4
-            'charge': self.charge_density * (self.dx**3)  # C
+            'A_mu': np.zeros((self.resolution, 4), dtype=np.float32),
+            'F_munu': np.zeros((self.resolution, 4, 4), dtype=np.float32),
+            'J': np.zeros((self.resolution, 4), dtype=np.float32),
+            'J4': np.zeros(self.resolution, dtype=np.float32),
+            'charge': self.charge_density * (self.dx**3)
         }
         em['J'][:, 0] = self.charge_density * self.c
         em['J4'] = np.power(np.linalg.norm(em['J'], axis=1), 4)
@@ -218,7 +210,7 @@ class UnifiedSpacetimeSimulator:
         r = np.where(r < 1e-6, 1e-6, r)
         phi_N = self.quantum['phi_N'][:, np.newaxis, np.newaxis]
         J4 = self.em['J4'][:, np.newaxis, np.newaxis]
-        mass = 1.989e30  # kg
+        mass = 1.989e30
         mass_term = 2 * self.G * mass / (self.c**2 * r)
         charge_term = (self.G * self.em['charge']**2) / (4 * np.pi * self.eps_0 * self.c**4 * r**2)
         j4_term = CONFIG["j4_coupling_factor"] * J4 * (self.c**4 / self.G)
@@ -294,7 +286,7 @@ class UnifiedSpacetimeSimulator:
         J4 = self.em['J4']
         F_squared = np.einsum('ijk,ijk->i', F_munu, F_munu)
         delta_phi_N = CONFIG["phi_N_evolution_factor"] * (F_squared + CONFIG["j4_coupling_factor"] * J4) * self.dt
-        self.quantum['phi_N'] += delta_phi_N  # No clipping per manuscript
+        self.quantum['phi_N'] += delta_phi_N
         return self.quantum['phi_N']
 
     def compute_lagrangian(self):
@@ -384,16 +376,7 @@ class UnifiedSpacetimeSimulator:
         fitness = base_fitness + ctc_influence + j4_effect
         return fitness, delta_time, ctc_influence
 
-    def generate_fourier_borel_signal(self, t, num_terms=10):
-        f_signal = np.zeros_like(t, dtype=np.float32)
-        for n in range(1, num_terms + 1):
-            k = 2 * n - 1
-            x = 2 * np.pi * self.flux_freq * t
-            f_signal += (1 / k) * np.sin(k * x)
-        f_signal *= (4 / np.pi)
-        return f_signal
-
-    def generate_flux_signal(self, duration=1.0, sample_rate=22050, num_fourier_terms=10):
+    def generate_flux_signal(self, duration=1.0, sample_rate=22050):
         t = np.linspace(0, duration, int(sample_rate * duration), False)
         flux_signal = np.zeros_like(t, dtype=np.float32)
         base_signal = np.sin(2 * np.pi * self.flux_freq * t) * 0.5
@@ -404,16 +387,16 @@ class UnifiedSpacetimeSimulator:
             gw_plus = self.gw['plus'][i] * 1000
             gw_cross = self.gw['cross'][i] * 1000
             total_amplitude_mod += (A_mu_norm + gw_plus + gw_cross) * 0.01
-            j4_effect = self.em['J4'][i] * CONFIG["j4_coupling_factor"] * 1e-3
+            j4_effect = self.em['J4'][i] * CONFIG["j4_coupling_factor"] * 1e-2
             phi_N_effect = self.quantum['phi_N'][i] * 1e-2
             total_freq_mod += (j4_effect + phi_N_effect) * 10
         amplitude_mod = 1 + total_amplitude_mod / self.resolution
         freq_mod = self.flux_freq + total_freq_mod / self.resolution
         flux_signal = amplitude_mod * np.sin(2 * np.pi * freq_mod * t) + base_signal
+        flux_signal += (j4_effect * 1e-2) * np.sin(2 * np.pi * self.flux_freq * t)  # J^4 enhancement
         schumann_mod = sum(A * np.cos(2 * np.pi * f * t) for f, A in zip(self.schumann_freqs, self.schumann_amplitudes))
         flux_signal += schumann_mod * 0.1
-        fourier_borel = self.generate_fourier_borel_signal(t, num_fourier_terms)
-        flux_signal += fourier_borel * 0.05
+        flux_signal += np.random.normal(0, 0.01, len(t))  # Noise for entanglement
         max_abs = np.max(np.abs(flux_signal))
         if max_abs > 0:
             flux_signal /= max_abs
@@ -421,27 +404,30 @@ class UnifiedSpacetimeSimulator:
         return flux_signal
 
     def activate_flux_capacitor(self, signal, sample_rate=22050):
+        current_time = time.perf_counter_ns() / 1e9
         if self.arduino:
             try:
-                scaled_signal = ((signal + 1) * 127.5).astype(np.uint8)  # Scale to 0-255 for PWM
+                scaled_signal = ((signal + 1) * 127.5).astype(np.uint8)
                 start_time = time.perf_counter_ns() / 1e9
                 for idx, value in enumerate(scaled_signal):
                     self.arduino.write(bytes([value]))
                     if self.arduino.in_waiting > 0:
                         feedback = self.arduino.readline().decode().strip()
                         try:
-                            hall_value = float(feedback)  # Hall sensor reading (0-5V mapped)
-                            self.em['J'][:, 0] += hall_value * 1e-6  # Update current density
+                            hall_value = float(feedback)
+                            self.em['J'][:, 0] += hall_value * 1e-6
                             self.em['J4'] = np.power(np.linalg.norm(self.em['J'], axis=1), 4)
                             logger.info(f"Hall Sensor Feedback: {hall_value}")
                         except ValueError:
                             pass
-                    time.sleep(1 / sample_rate)  # Pace to match sample rate
+                    time.sleep(1 / sample_rate)
                 state = int(np.sum(self.bit_states * (2 ** np.arange(self.resolution))))
                 fitness, delta_t, ctc_influence = self.compute_fitness(state, start_time)
+                em_effect = np.mean(np.abs(self.em['A_mu'][:, 0]))
                 logger.info(f"Iteration {self.iteration}, Time {int(current_time * 1e9)}: "
                             f"Bit States = {self.bit_states.tolist()}, Entanglement = {self.temporal_entanglement[0]:.4f}, "
-                            f"State = {state}, Fitness = {fitness:.2f}, DeltaT = {delta_t:.6f}, CTC Influence = {ctc_influence:.4f}")
+                            f"EM Effect = {em_effect:.6f}, State = {state}, Fitness = {fitness:.2f}, "
+                            f"DeltaT = {delta_t:.6f}, CTC Influence = {ctc_influence:.4f}")
             except serial.SerialException as e:
                 print(f"Error communicating with Arduino: {e}")
         self.all_flux_signals.append(signal)
@@ -558,8 +544,6 @@ class UnifiedSpacetimeSimulator:
             i_plus = (i + 1) % self.resolution
             i_minus = (i - 1) % self.resolution
             partial_psi = (self.quantum['spinor'][i_plus] - self.quantum['spinor'][i_minus]) / (2 * self.dx)
-            harmonic_scale = self.pythagorean_ratios[mu % len(self.pythagorean_ratios)]
-            partial_psi *= harmonic_scale
         else:
             partial_psi = np.zeros_like(psi)
         connection_term = np.einsum('ij,j', self.christoffel[i, mu, :, :], psi)
@@ -599,12 +583,6 @@ class UnifiedSpacetimeSimulator:
     def evolve_system(self, steps=CONFIG["steps"]):
         swarm = [{"state": TARGET_PHYSICAL_STATE + i, "temporal_pos": time.perf_counter_ns() / 1e9} 
                  for i in range(CONFIG["swarm_size"])]
-        f_abc = np.zeros((8, 8, 8))
-        f_abc[0, 1, 2] = 1; f_abc[0, 2, 1] = -1
-        ε_abc = np.zeros((3, 3, 3))
-        ε_abc[0, 1, 2] = 1; ε_abc[1, 2, 0] = 1; ε_abc[2, 0, 1] = 1
-        ε_abc[0, 2, 1] = -1; ε_abc[1, 0, 2] = -1; ε_abc[2, 1, 0] = -1
-
         for step in range(steps):
             current_time = time.perf_counter_ns() / 1e9
             self.iteration = step
@@ -619,28 +597,6 @@ class UnifiedSpacetimeSimulator:
             self.compute_delta_g_tphi()
             self.compute_lagrangian()
             self.total_stress_energy()
-            for i in range(self.resolution):
-                for mu in range(4):
-                    nonlinear_strong = self.g_strong * np.sum(f_abc[:, :, mu] * self.strong['A_mu'][i, :, mu, np.newaxis] * self.strong['A_mu'][i, :, mu, np.newaxis])
-                    nonlinear_weak = self.g_weak * np.sum(ε_abc[:, :, mu] * self.weak['W_mu'][i, :, mu, np.newaxis] * self.weak['W_mu'][i, :, mu, np.newaxis])
-                    self.strong['A_mu'][i, :, mu] += nonlinear_strong * self.dt
-                    self.weak['W_mu'][i, :, mu] += nonlinear_weak * self.dt
-                for mu in range(4):
-                    for nu in range(4):
-                        self.em['F_munu'][i, mu, nu] = (
-                            (self.em['A_mu'][(i+1)%self.resolution, nu] - self.em['A_mu'][(i-1)%self.resolution, nu]) -
-                            (self.em['A_mu'][(i+1)%self.resolution, mu] - self.em['A_mu'][(i-1)%self.resolution, mu])
-                        ) / (2 * self.dx) + CONFIG["j4_coupling_factor"] * self.em['J4'][i]
-                        for a in range(8):
-                            dA_mu_s = (self.strong['A_mu'][(i+1)%self.resolution, a, nu] - self.strong['A_mu'][(i-1)%self.resolution, a, nu]) / (2*self.dx)
-                            dA_nu_s = (self.strong['A_mu'][(i+1)%self.resolution, a, mu] - self.strong['A_mu'][(i-1)%self.resolution, a, mu]) / (2*self.dx)
-                            nonlinear_s = self.g_strong * np.sum(f_abc[a] * self.strong['A_mu'][i, :, mu] * self.strong['A_mu'][i, :, nu])
-                            self.strong['F_munu'][i, a, mu, nu] = dA_mu_s - dA_nu_s + nonlinear_s
-                        for a in range(3):
-                            dW_mu = (self.weak['W_mu'][(i+1)%self.resolution, a, nu] - self.weak['W_mu'][(i-1)%self.resolution, a, nu]) / (2*self.dx)
-                            dW_nu = (self.weak['W_mu'][(i+1)%self.resolution, a, mu] - self.weak['W_mu'][(i-1)%self.resolution, a, mu]) / (2*self.dx)
-                            nonlinear_w = self.g_weak * np.sum(ε_abc[a] * self.weak['W_mu'][i, :, mu] * self.weak['W_mu'][i, :, nu])
-                            self.weak['W_munu'][i, a, mu, nu] = dW_mu - dW_nu + nonlinear_w
             t = self.fabric[:, 3] + self.time
             self.gw['plus'] = 1e-6 * np.sin(2 * np.pi * self.schumann_freqs[0] * t)
             self.gw['cross'] = 1e-6 * np.cos(2 * np.pi * self.schumann_freqs[0] * t)
