@@ -79,11 +79,16 @@ def compute_curvature(metric: np.ndarray, inverse_metric: np.ndarray, grid_size:
             coords = np.array(np.meshgrid(*[np.arange(s) for s in grid_size[:3]], indexing='ij'))
             
             for pos in body_positions:
+                # Safely reshape pos for broadcasting
+                pos_reshaped = np.array(pos).reshape(-1, 1, 1, 1)
                 # Vectorized distance computation
-                dist = np.sqrt(np.sum((coords - pos[:, None, None, None])**2, axis=0) + 1e-15)
-                # Broadcast to full grid size
+                dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
+                # Broadcast to full grid size with bounds checking
                 full_dist = np.ones(grid_size, dtype=np.float64)
-                full_dist[:dist.shape[0], :dist.shape[1], :dist.shape[2]] = dist
+                slice_x = min(dist.shape[0], grid_size[0])
+                slice_y = min(dist.shape[1], grid_size[1])
+                slice_z = min(dist.shape[2], grid_size[2])
+                full_dist[:slice_x, :slice_y, :slice_z] = dist[:slice_x, :slice_y, :slice_z]
                 ricci_scalar += G / full_dist * 0.01
         
         # Clip for stability
@@ -92,23 +97,12 @@ def compute_curvature(metric: np.ndarray, inverse_metric: np.ndarray, grid_size:
         # Log metrics
         ricci_mean = np.mean(np.abs(ricci_scalar))
         ricci_std = np.std(ricci_scalar)
-        dist_sum = (_compute_body_distance_sum(body_positions) if body_positions else 0.0)
+        # Use centralized cached distance calculation
+        from ...utils.math_utils import compute_body_distance_sum
+        dist_sum = (compute_body_distance_sum(body_positions) if body_positions else 0.0)
         logger.debug("Curvature computed (vectorized): ricci_mean=%.6f, ricci_std=%.6f, boundary_factor_mean=%.6f, body_dist_sum=%.6f", 
                      ricci_mean, ricci_std, np.mean(boundary_factor), dist_sum)
         return ricci_tensor, ricci_scalar
     except Exception as e:
         logger.error("Curvature computation failed: %s", e)
         raise
-
-
-def _compute_body_distance_sum(body_positions: list) -> float:
-    """Compute sum of pairwise distances between bodies (optimized)."""
-    if not body_positions:
-        return 0.0
-    positions = np.array(body_positions)
-    n = len(positions)
-    dist_sum = 0.0
-    for i in range(n):
-        for j in range(i + 1, n):
-            dist_sum += np.linalg.norm(positions[i] - positions[j])
-    return dist_sum

@@ -61,7 +61,9 @@ def compute_j6_potential(phi: np.ndarray, j4: np.ndarray, psi: np.ndarray, ricci
             if phi.size < 1000:
                 coords = np.array(np.meshgrid(*[np.arange(s) for s in phi.shape[:3]], indexing='ij'))
                 for pos, mass in zip(body_positions, body_masses):
-                    dist = np.sqrt(np.sum((coords - pos[:, None, None, None])**2, axis=0) + 1e-15)
+                    # Safely reshape pos for broadcasting
+                    pos_reshaped = np.array(pos).reshape(-1, 1, 1, 1)
+                    dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
                     # Expand to full phi shape if needed
                     if phi.ndim > 3:
                         dist_expanded = np.expand_dims(dist, axis=tuple(range(3, phi.ndim)))

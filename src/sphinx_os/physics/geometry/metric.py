@@ -51,9 +51,16 @@ def compute_quantum_metric(lattice: object, nugget_field: np.ndarray, temporal_e
         if body_positions and body_masses:
             coords = np.array(np.meshgrid(*[np.arange(s) for s in grid_size[:3]], indexing='ij'))
             for pos, mass in zip(body_positions, body_masses):
-                dist = np.sqrt(np.sum((coords - pos[:, None, None, None])**2, axis=0) + 1e-15)
+                # Safely reshape pos for broadcasting
+                pos_reshaped = np.array(pos).reshape(-1, 1, 1, 1)
+                dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
+                # Create full_dist with proper shape and bounds checking
                 full_dist = np.ones(grid_size, dtype=np.float64)
-                full_dist[:dist.shape[0], :dist.shape[1], :dist.shape[2]] = dist
+                # Use minimum of dist shape and grid_size for safe slicing
+                slice_x = min(dist.shape[0], grid_size[0])
+                slice_y = min(dist.shape[1], grid_size[1])
+                slice_z = min(dist.shape[2], grid_size[2])
+                full_dist[:slice_x, :slice_y, :slice_z] = dist[:slice_x, :slice_y, :slice_z]
                 metric[..., 0, 0] *= (1 - 2 * G * mass / (full_dist * c**2))
         
         # Perturbations from fields and tetrahedral structure
@@ -84,7 +91,9 @@ def compute_quantum_metric(lattice: object, nugget_field: np.ndarray, temporal_e
         
         inverse_metric = inverse_reshaped.reshape(grid_size + (6, 6))
         
-        dist_sum = (_compute_body_distance_sum(body_positions) if body_positions else 0.0)
+        # Use centralized cached distance calculation
+        from ...utils.math_utils import compute_body_distance_sum
+        dist_sum = (compute_body_distance_sum(body_positions) if body_positions else 0.0)
         logger.debug("Metric computed (vectorized): mean_diag=%.6f, std_diag=%.6f, boundary_factor_mean=%.6f, body_dist_sum=%.6f", 
                      np.mean(np.diagonal(metric, axis1=-2, axis2=-1)), 
                      np.std(np.diagonal(metric, axis1=-2, axis2=-1)), np.mean(boundary_factor), dist_sum)
@@ -92,19 +101,6 @@ def compute_quantum_metric(lattice: object, nugget_field: np.ndarray, temporal_e
     except Exception as e:
         logger.error("Quantum metric computation failed: %s", e)
         raise
-
-
-def _compute_body_distance_sum(body_positions: list) -> float:
-    """Compute sum of pairwise distances between bodies (optimized)."""
-    if not body_positions:
-        return 0.0
-    positions = np.array(body_positions)
-    n = len(positions)
-    dist_sum = 0.0
-    for i in range(n):
-        for j in range(i + 1, n):
-            dist_sum += np.linalg.norm(positions[i] - positions[j])
-    return dist_sum
 
 def generate_wormhole_nodes(grid_size: tuple, deltas: list) -> np.ndarray:
     """Generate wormhole node positions."""

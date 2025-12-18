@@ -48,9 +48,15 @@ def evolve_graviton_field(graviton_field: np.ndarray, grid_size: tuple, deltas: 
             boundary_factor = np.exp(-0.1 * z) * (1 + 0.001 * (np.abs(graviton_traces)**6 / (j6_scale + epsilon)))
             
             for pos, mass in zip(body_positions, body_masses):
-                dist = np.sqrt(np.sum((coords - pos[:, None, None, None])**2, axis=0) + 1e-15)
+                # Safely reshape pos for broadcasting
+                pos_reshaped = np.array(pos).reshape(-1, 1, 1, 1)
+                dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
                 full_dist = np.ones(grid_size, dtype=np.float64)
-                full_dist[:dist.shape[0], :dist.shape[1], :dist.shape[2]] = dist
+                # Bounds checking for safe slicing
+                slice_x = min(dist.shape[0], grid_size[0])
+                slice_y = min(dist.shape[1], grid_size[1])
+                slice_z = min(dist.shape[2], grid_size[2])
+                full_dist[:slice_x, :slice_y, :slice_z] = dist[:slice_x, :slice_y, :slice_z]
                 
                 # Broadcast source term
                 for i in range(6):
@@ -67,8 +73,9 @@ def evolve_graviton_field(graviton_field: np.ndarray, grid_size: tuple, deltas: 
         new_h = np.clip(new_h, -1e3, 1e3)
         
         # Log metrics
+        from ...utils.math_utils import compute_body_distance_sum
         graviton_trace = np.mean(np.trace(new_h, axis1=-2, axis2=-1))
-        dist_sum = (_compute_body_distance_sum(body_positions) if body_positions else 0.0)
+        dist_sum = (compute_body_distance_sum(body_positions) if body_positions else 0.0)
         steps.append({
             "graviton_trace": graviton_trace,
             "graviton_norm": np.linalg.norm(new_h),
@@ -83,16 +90,3 @@ def evolve_graviton_field(graviton_field: np.ndarray, grid_size: tuple, deltas: 
     except Exception as e:
         logger.error("Graviton field evolution failed: %s", e)
         raise
-
-
-def _compute_body_distance_sum(body_positions: list) -> float:
-    """Compute sum of pairwise distances between bodies (optimized)."""
-    if not body_positions:
-        return 0.0
-    positions = np.array(body_positions)
-    n = len(positions)
-    dist_sum = 0.0
-    for i in range(n):
-        for j in range(i + 1, n):
-            dist_sum += np.linalg.norm(positions[i] - positions[j])
-    return dist_sum
