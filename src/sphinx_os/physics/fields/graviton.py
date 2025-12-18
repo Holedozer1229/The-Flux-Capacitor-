@@ -4,7 +4,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def initialize_graviton_field(grid_size: tuple, deltas: list) -> np.ndarray:
-    """Initialize the spin-2 graviton field h_{\mu\nu}."""
+    r"""Initialize the spin-2 graviton field h_{\mu\nu}."""
     try:
         graviton_field = np.zeros(grid_size + (6, 6), dtype=np.float64)
         for idx in np.ndindex(grid_size):

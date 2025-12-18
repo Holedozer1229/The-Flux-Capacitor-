@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 def compute_riemann_tensor(metric: np.ndarray, grid_size: tuple, dx: float, 
                            body_positions: list = None) -> np.ndarray:
-    """Compute the Riemann curvature tensor R^{\rho}_{\sigma\mu\nu} (vectorized)."""
+    r"""Compute the Riemann curvature tensor R^{\rho}_{\sigma\mu\nu} (vectorized)."""
     try:
         riemann = np.zeros(grid_size + (6, 6, 6, 6), dtype=np.float64)
         christoffel = np.zeros(grid_size + (6, 6, 6), dtype=np.float64)
