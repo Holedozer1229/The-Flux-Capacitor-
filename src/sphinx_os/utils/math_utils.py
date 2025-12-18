@@ -1,7 +1,32 @@
 import numpy as np
 import logging
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=32)
+def _compute_body_distance_sum_cached(body_positions_tuple: tuple) -> float:
+    """Compute sum of pairwise distances between bodies (cached for repeated calls)."""
+    if not body_positions_tuple:
+        return 0.0
+    positions = np.array(body_positions_tuple)
+    n = len(positions)
+    dist_sum = 0.0
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist_sum += np.linalg.norm(positions[i] - positions[j])
+    return dist_sum
+
+
+def compute_body_distance_sum(body_positions: list) -> float:
+    """Compute sum of pairwise distances between bodies (with caching)."""
+    if not body_positions:
+        return 0.0
+    # Convert to tuple of tuples for caching
+    body_positions_tuple = tuple(tuple(pos) for pos in body_positions)
+    return _compute_body_distance_sum_cached(body_positions_tuple)
+
 
 def compute_j6_potential(phi: np.ndarray, j4: np.ndarray, psi: np.ndarray, ricci_scalar: np.ndarray,
                          graviton_field: np.ndarray = None, kappa_j6: float = 1.0, 
@@ -29,13 +54,27 @@ def compute_j6_potential(phi: np.ndarray, j4: np.ndarray, psi: np.ndarray, ricci
         graviton_nonlinear = np.abs(graviton_trace)**6 / (j6_scaling_factor + epsilon)  # J^6-like term
         graviton_factor = 1 + 0.01 * graviton_trace + 0.001 * graviton_nonlinear  # Combined linear and non-linear
         
-        # Three-body influence
+        # Three-body influence (vectorized where possible)
         if body_positions and body_masses:
             G = 6.67430e-11  # Gravitational constant
-            for idx in np.ndindex(phi.shape):
+            # For small phi arrays, vectorization is more efficient
+            if phi.size < 1000:
+                coords = np.array(np.meshgrid(*[np.arange(s) for s in phi.shape[:3]], indexing='ij'))
                 for pos, mass in zip(body_positions, body_masses):
-                    dist = np.sqrt(sum((np.array(idx[:3]) - pos)**2) + 1e-15)
-                    phi_term[idx] += G * mass / dist  # Gravitational potential contribution
+                    dist = np.sqrt(np.sum((coords - pos[:, None, None, None])**2, axis=0) + 1e-15)
+                    # Expand to full phi shape if needed
+                    if phi.ndim > 3:
+                        dist_expanded = np.expand_dims(dist, axis=tuple(range(3, phi.ndim)))
+                        dist_expanded = np.broadcast_to(dist_expanded, phi.shape)
+                    else:
+                        dist_expanded = dist
+                    phi_term += G * mass / dist_expanded
+            else:
+                # Fallback for very large arrays
+                for idx in np.ndindex(phi.shape):
+                    for pos, mass in zip(body_positions, body_masses):
+                        dist = np.sqrt(sum((np.array(idx[:3]) - pos)**2) + 1e-15)
+                        phi_term[idx] += G * mass / dist
         
         # Barycentric interpolation for Rio smoothness
         bary_weights = np.array([0.25, 0.25, 0.25, 0.25])
@@ -64,8 +103,7 @@ def compute_j6_potential(phi: np.ndarray, j4: np.ndarray, psi: np.ndarray, ricci
             phi_abs**6 * (np.cos(phi) * denom - 0.01 * np.sin(phi) * np.sign(phi)) / denom**2
         )
         
-        dist_sum = (sum(np.sqrt(sum((p1 - p2)**2)) for i, p1 in enumerate(body_positions) 
-                        for p2 in body_positions[i+1:]) if body_positions else 0.0)
+        dist_sum = compute_body_distance_sum(body_positions) if body_positions else 0.0
         logger.debug("J^6 potential: mean=%.6e, rio_mean=%.6f, rio_std=%.6f, graviton_trace=%.6f, graviton_nonlinear=%.6e, boundary_factor=%.6f, boundary_nonlinear=%.6e, body_dist_sum=%.6f", 
                      np.mean(V_j6), ricci_mean, ricci_std, graviton_trace, graviton_nonlinear, boundary_factor, boundary_nonlinear, dist_sum)
         return V_j6, dV_j6_dphi
