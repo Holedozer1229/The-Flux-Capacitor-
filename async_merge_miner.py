@@ -133,10 +133,14 @@ class AsyncStratumClient:
         """
         Extract the block height from the `coinbase1` field.
         """
-        # The block height is typically embedded in the coinbase1 field (first bytes)
+        # The block height is typically embedded in the coinbase1 field after the script length
         coinbase_bytes = bytes.fromhex(coinbase1) if isinstance(coinbase1, str) else coinbase1
-        block_height_bytes = coinbase_bytes[:16]  # Usually the first 4 bytes represent the height
-        return int.from_bytes(block_height_bytes, byteorder="little")
+        # Skip version (4 bytes) and try to extract height from script push data
+        # This is a simplified extraction - actual parsing may vary by pool
+        if len(coinbase_bytes) >= 8:
+            block_height_bytes = coinbase_bytes[4:8]  # Extract 4 bytes after version
+            return int.from_bytes(block_height_bytes, byteorder="little")
+        return 0  # Return 0 if unable to extract
 
 
     async def submit_share(self, job_id: str, nonce: int):
@@ -145,7 +149,7 @@ class AsyncStratumClient:
         """
         submit_data = {
             "method": "mining.submit",
-            "params": [self.username, job_id, '00', str(nonce), '000000']
+            "params": [self.username, job_id, '00', f'{nonce:08x}', '000000']
         }
         await self._send(submit_data)
         logging.info(f"Share submitted: Job ID {job_id}, Nonce {nonce}")
@@ -211,7 +215,7 @@ class AsyncMergeMiner:
                 self.blocks_mined_btc += 1
 
             # For simplicity, reuse RollPoW mining logic
-            rollpow_target = btc_target << 1  # Assume RollPoW has a slightly looser difficulty
+            rollpow_target = btc_target >> 1  # Assume RollPoW has a slightly looser difficulty (higher target)
             block_hash_rollpow = sha256d(block_header[::-1])  # Use reversed payload for variation
             if int.from_bytes(block_hash_rollpow, "big") < rollpow_target:
                 logging.info(f"RollPoW Block Mined! Nonce: {nonce}, Height: {block_height}, Hash: {block_hash_rollpow.hex()}")
@@ -227,14 +231,22 @@ class AsyncMergeMiner:
 
 
 async def main():
+    import os
+    
     logging.info("🚀 Launching Asynchronous Merge Miner...")
 
     # Prepare mining message
     mining_message = b"Asynchronous Bitcoin and RollPoW merge mining"
     logging.info(f"Mining payload: {mining_message.decode()}")
 
+    # Get mining configuration from environment or use defaults
+    pool_host = os.getenv("MINING_POOL_HOST", "solo.ckpool.org")
+    pool_port = int(os.getenv("MINING_POOL_PORT", "3333"))
+    mining_address = os.getenv("MINING_ADDRESS", "33vn9iMkLrj2Kjc2grNjmZPu8WxXSQb8yj.worker")
+    mining_password = os.getenv("MINING_PASSWORD", "x")
+
     # Initialize Stratum client for Bitcoin
-    btc_client = AsyncStratumClient("solo.ckpool.org", 3333, "33vn9iMkLrj2Kjc2grNjmZPu8WxXSQb8yj.worker", "x")
+    btc_client = AsyncStratumClient(pool_host, pool_port, mining_address, mining_password)
     await btc_client.connect()
 
     # Start merge miner
