@@ -48,8 +48,11 @@ def evolve_graviton_field(graviton_field: np.ndarray, grid_size: tuple, deltas: 
             boundary_factor = np.exp(-0.1 * z) * (1 + 0.001 * (np.abs(graviton_traces)**6 / (j6_scale + epsilon)))
             
             for pos, mass in zip(body_positions, body_masses):
-                # Safely reshape pos for broadcasting
-                pos_reshaped = np.array(pos).reshape(-1, 1, 1, 1)
+                # Safely reshape pos for broadcasting (ensure 3D coordinates)
+                pos_array = np.array(pos).flatten()[:3]  # Take first 3 elements
+                if len(pos_array) < 3:
+                    pos_array = np.pad(pos_array, (0, 3 - len(pos_array)), mode='constant')
+                pos_reshaped = pos_array.reshape(3, 1, 1, 1)
                 dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
                 full_dist = np.ones(grid_size, dtype=np.float64)
                 # Bounds checking for safe slicing

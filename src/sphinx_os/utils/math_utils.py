@@ -23,8 +23,11 @@ def compute_body_distance_sum(body_positions: list) -> float:
     """Compute sum of pairwise distances between bodies (with caching)."""
     if not body_positions:
         return 0.0
-    # Convert to tuple of tuples for caching
-    body_positions_tuple = tuple(tuple(pos) for pos in body_positions)
+    # Convert to tuple of tuples for caching - handle numpy arrays
+    body_positions_tuple = tuple(
+        tuple(pos.tolist()) if isinstance(pos, np.ndarray) else tuple(pos)
+        for pos in body_positions
+    )
     return _compute_body_distance_sum_cached(body_positions_tuple)
 
 
@@ -61,8 +64,11 @@ def compute_j6_potential(phi: np.ndarray, j4: np.ndarray, psi: np.ndarray, ricci
             if phi.size < 1000:
                 coords = np.array(np.meshgrid(*[np.arange(s) for s in phi.shape[:3]], indexing='ij'))
                 for pos, mass in zip(body_positions, body_masses):
-                    # Safely reshape pos for broadcasting
-                    pos_reshaped = np.array(pos).reshape(-1, 1, 1, 1)
+                    # Safely reshape pos for broadcasting (ensure 3D coordinates)
+                    pos_array = np.array(pos).flatten()[:3]  # Take first 3 elements
+                    if len(pos_array) < 3:
+                        pos_array = np.pad(pos_array, (0, 3 - len(pos_array)), mode='constant')
+                    pos_reshaped = pos_array.reshape(3, 1, 1, 1)
                     dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
                     # Expand to full phi shape if needed
                     if phi.ndim > 3:

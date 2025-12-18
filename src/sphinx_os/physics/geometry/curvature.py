@@ -12,20 +12,28 @@ def compute_riemann_tensor(metric: np.ndarray, grid_size: tuple, dx: float,
         christoffel = np.zeros(grid_size + (6, 6, 6), dtype=np.float64)
         
         # Compute Christoffel symbols (first kind) - vectorized over spatial dimensions
+        # Use min to ensure we only use valid spatial dimensions
+        n_spatial_dims = len(grid_size)
         for rho, mu, nu in np.ndindex((6, 6, 6)):
             for sigma in range(6):
+                # Only roll along valid spatial dimensions (constrain to 0..n_spatial_dims-1)
+                axis_mu = min(mu, n_spatial_dims - 1)
+                axis_nu = min(nu, n_spatial_dims - 1)
+                axis_sigma = min(sigma, n_spatial_dims - 1)
                 # Vectorized computation across all spatial points
                 christoffel[..., rho, mu, nu] += 0.5 * (
-                    np.roll(metric[..., mu, sigma], -1, axis=mu % len(grid_size)) / dx -
-                    np.roll(metric[..., nu, sigma], -1, axis=nu % len(grid_size)) / dx +
-                    np.roll(metric[..., mu, nu], -1, axis=sigma % len(grid_size)) / dx
+                    np.roll(metric[..., mu, sigma], -1, axis=axis_mu) / dx -
+                    np.roll(metric[..., nu, sigma], -1, axis=axis_nu) / dx +
+                    np.roll(metric[..., mu, nu], -1, axis=axis_sigma) / dx
                 )
         
         # Compute Riemann tensor - vectorized over spatial dimensions
         for rho, sigma, mu, nu in np.ndindex((6, 6, 6, 6)):
+            axis_mu = min(mu, n_spatial_dims - 1)
+            axis_nu = min(nu, n_spatial_dims - 1)
             riemann[..., rho, sigma, mu, nu] = (
-                np.roll(christoffel[..., rho, nu, sigma], -1, axis=mu % len(grid_size)) / dx -
-                np.roll(christoffel[..., rho, mu, sigma], -1, axis=nu % len(grid_size)) / dx
+                np.roll(christoffel[..., rho, nu, sigma], -1, axis=axis_mu) / dx -
+                np.roll(christoffel[..., rho, mu, sigma], -1, axis=axis_nu) / dx
             )
             # Vectorized contraction over lambda
             for lambda_idx in range(6):
@@ -79,8 +87,11 @@ def compute_curvature(metric: np.ndarray, inverse_metric: np.ndarray, grid_size:
             coords = np.array(np.meshgrid(*[np.arange(s) for s in grid_size[:3]], indexing='ij'))
             
             for pos in body_positions:
-                # Safely reshape pos for broadcasting
-                pos_reshaped = np.array(pos).reshape(-1, 1, 1, 1)
+                # Safely reshape pos for broadcasting (ensure 3D coordinates)
+                pos_array = np.array(pos).flatten()[:3]  # Take first 3 elements
+                if len(pos_array) < 3:
+                    pos_array = np.pad(pos_array, (0, 3 - len(pos_array)), mode='constant')
+                pos_reshaped = pos_array.reshape(3, 1, 1, 1)
                 # Vectorized distance computation
                 dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
                 # Broadcast to full grid size with bounds checking

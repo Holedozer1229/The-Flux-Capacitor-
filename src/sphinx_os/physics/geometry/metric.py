@@ -32,9 +32,16 @@ def compute_quantum_metric(lattice: object, nugget_field: np.ndarray, temporal_e
         # Vectorized z computation
         z = np.sum(np.abs(idx_grid - grid_center), axis=-1) / np.sum(grid_size)
         
-        # Vectorized psi and j4 computations
-        psi_abs_sq = np.mean(np.abs(psi)**2, axis=tuple(range(len(psi.shape)))[len(grid_size):] if len(psi.shape) > len(grid_size) else ())
-        if psi_abs_sq.shape != grid_size:
+        # Vectorized psi computation - simplified logic
+        if psi.shape == grid_size:
+            # psi has same shape as grid, compute absolute square directly
+            psi_abs_sq = np.abs(psi)**2
+        elif len(psi.shape) > len(grid_size):
+            # psi has extra dimensions, average over them
+            extra_axes = tuple(range(len(grid_size), len(psi.shape)))
+            psi_abs_sq = np.mean(np.abs(psi)**2, axis=extra_axes)
+        else:
+            # psi has fewer dimensions, broadcast to grid size
             psi_abs_sq = np.abs(psi)**2
         j4_abs = np.abs(j4_field)
         
@@ -51,8 +58,11 @@ def compute_quantum_metric(lattice: object, nugget_field: np.ndarray, temporal_e
         if body_positions and body_masses:
             coords = np.array(np.meshgrid(*[np.arange(s) for s in grid_size[:3]], indexing='ij'))
             for pos, mass in zip(body_positions, body_masses):
-                # Safely reshape pos for broadcasting
-                pos_reshaped = np.array(pos).reshape(-1, 1, 1, 1)
+                # Safely reshape pos for broadcasting (ensure 3D coordinates)
+                pos_array = np.array(pos).flatten()[:3]  # Take first 3 elements
+                if len(pos_array) < 3:
+                    pos_array = np.pad(pos_array, (0, 3 - len(pos_array)), mode='constant')
+                pos_reshaped = pos_array.reshape(3, 1, 1, 1)
                 dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
                 # Create full_dist with proper shape and bounds checking
                 full_dist = np.ones(grid_size, dtype=np.float64)
