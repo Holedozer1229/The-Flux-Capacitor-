@@ -30,6 +30,7 @@ The TOE Flux Capacitor redefines physics by unifying **quantum mechanics** and *
 - **Temporal Displacement**: Simulates quantum teleportation with CTCs (`temporal_displacement_test.py`).
 - **CTC Lattice Model**: Non-local tetrahedral lattice with higher-order CTC gates (`ctc_lattice_model.py`).
 - **Hardware Integration**: Audio output via Arduino-controlled 8-track player (`arduino_interface.py`, `HARDWARE.md`).
+- **Asynchronous Merge Miner**: Bitcoin and RollPoW merge mining implementation using Stratum protocol (`async_merge_miner.py`, `MINING.md`).
 
 ## Installation
 1. **Clone the Repository**:
