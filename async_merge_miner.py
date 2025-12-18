@@ -179,7 +179,7 @@ class AsyncMergeMiner:
         Perform asynchronous mining for Bitcoin and RollPoW.
         """
         logging.info("Starting asynchronous merge mining...")
-        nonce = 0xA6B7C9FFEECAFEFF
+        nonce = 0
 
         while nonce < iterations:
             # Periodic progress logs
