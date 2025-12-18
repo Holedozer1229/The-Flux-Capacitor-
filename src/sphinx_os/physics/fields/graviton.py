@@ -3,12 +3,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Constants for graviton field dimensions (6D spacetime)
+SPACETIME_DIMS = 6
+
 def initialize_graviton_field(grid_size: tuple, deltas: list) -> np.ndarray:
     r"""Initialize the spin-2 graviton field h_{\mu\nu}."""
     try:
-        graviton_field = np.zeros(grid_size + (6, 6), dtype=np.float64)
+        graviton_field = np.zeros(grid_size + (SPACETIME_DIMS, SPACETIME_DIMS), dtype=np.float64)
         for idx in np.ndindex(grid_size):
-            graviton_field[idx] = np.random.normal(0, 1e-5, (6, 6))
+            graviton_field[idx] = np.random.normal(0, 1e-5, (SPACETIME_DIMS, SPACETIME_DIMS))
             graviton_field[idx] = (graviton_field[idx] + graviton_field[idx].T) / 2  # Ensure symmetry
         logger.info("Graviton field initialized with grid size %s", grid_size)
         return graviton_field
@@ -28,7 +31,7 @@ def evolve_graviton_field(graviton_field: np.ndarray, grid_size: tuple, deltas: 
         
         # Compute Laplacian (vectorized)
         laplacian = np.zeros_like(h)
-        for dim in range(min(6, len(grid_size))):
+        for dim in range(min(SPACETIME_DIMS, len(grid_size))):
             laplacian += np.roll(h, 1, axis=dim) + np.roll(h, -1, axis=dim) - 2 * h
         laplacian /= dx**2
         
@@ -62,7 +65,7 @@ def evolve_graviton_field(graviton_field: np.ndarray, grid_size: tuple, deltas: 
                 full_dist[:slice_x, :slice_y, :slice_z] = dist[:slice_x, :slice_y, :slice_z]
                 
                 # Broadcast source term
-                for i in range(6):
+                for i in range(SPACETIME_DIMS):
                     source[..., i, i] += G * mass / full_dist * boundary_factor
         
         # Evolve field

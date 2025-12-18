@@ -86,7 +86,7 @@ class FluxCapacitor:
         grid_center = np.array(self.grid_size) / 2
 
         # Performance optimization: Generate configuration grid
-        # Full grid would be 3^5 * 3^8 * 3 = 1,594,323 combinations
+        # Full grid would be 3*3*3*3*3 (J6) * 3*3*2*2*3*2*2*2 (CTC) * 3 (boundary) = 69,984 combinations
         # Limited to first 2 of each for performance (2 * 2 * 3 = 12 total iterations)
         j6_configs = [
             {'kappa_j6': kj, 'kappa_j6_eff': kje, 'j6_scaling_factor': jsf, 'epsilon': eps, 'resonance_frequency': rf}

@@ -7,16 +7,26 @@ logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=32)
 def _compute_body_distance_sum_cached(body_positions_tuple: tuple) -> float:
-    """Compute sum of pairwise distances between bodies (cached for repeated calls)."""
+    """Compute sum of pairwise distances between bodies (cached, vectorized for small arrays)."""
     if not body_positions_tuple:
         return 0.0
     positions = np.array(body_positions_tuple)
     n = len(positions)
-    dist_sum = 0.0
-    for i in range(n):
-        for j in range(i + 1, n):
-            dist_sum += np.linalg.norm(positions[i] - positions[j])
-    return dist_sum
+    
+    # For small arrays (n <= 10), vectorized approach is faster
+    if n <= 10:
+        # Compute all pairwise distances at once
+        diff = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]
+        distances = np.sqrt(np.sum(diff**2, axis=2))
+        # Sum upper triangle (excluding diagonal)
+        return np.sum(np.triu(distances, k=1))
+    else:
+        # For larger arrays, loop is more memory efficient
+        dist_sum = 0.0
+        for i in range(n):
+            for j in range(i + 1, n):
+                dist_sum += np.linalg.norm(positions[i] - positions[j])
+        return dist_sum
 
 
 def compute_body_distance_sum(body_positions: list) -> float:
