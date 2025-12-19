@@ -64,13 +64,15 @@ class TetrahedralLattice:
             napoleon_factor = 1 + 0.05 * np.cos(3 * idx_sum)
             
             # Three-body modulation
+            from ..utils.math_utils import compute_body_distance_sum
+            
+            dist_sum = 0.0
             if body_positions:
-                dist_sum = sum(np.sqrt(sum((p1 - p2)**2)) for i, p1 in enumerate(body_positions) 
-                               for p2 in body_positions[i+1:])
+                dist_sum = compute_body_distance_sum(body_positions)
                 napoleon_factor *= np.exp(-0.01 * dist_sum)  # Modulate amplitude
             
-            logger.debug("Napoleon factor computed for idx %s: %.6f, body_dist_sum=%s", 
-                         idx, napoleon_factor, dist_sum if body_positions else "N/A")
+            logger.debug("Napoleon factor computed for idx %s: %.6f, body_dist_sum=%.6f", 
+                         idx, napoleon_factor, dist_sum)
             return napoleon_factor
         except Exception as e:
             logger.error("Napoleon factor computation failed: %s", e)
