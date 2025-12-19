@@ -27,6 +27,85 @@ def sha256d(data: bytes) -> bytes:
     return hashlib.sha256(hashlib.sha256(data).digest()).digest()
 
 
+def tetrapow_hash(data: bytes) -> bytes:
+    """
+    Ω′ Δ18 TETRA-POW Quantum-Temporal Hash (128-round extended SHA-256).
+    Enhanced proof-of-work with nonlinear quantum feedback.
+    """
+    MASK = 0xFFFFFFFF
+    
+    # Initialize state registers (A–H) with SHA-256 initial values
+    A, B, C, D, E, F, G, H = (
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+    )
+    
+    # SHA-256 constants K, extended to 128 rounds
+    K = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ] * 2  # Repeat for 128 rounds
+    
+    # Prepare message schedule W (pad data and create 128 words)
+    msg_len = len(data)
+    padded = data + b'\x80'
+    padded += b'\x00' * ((120 - len(padded)) % 128)
+    padded += (msg_len * 8).to_bytes(8, 'big')
+    
+    W = []
+    for i in range(0, len(padded), 4):
+        W.append(int.from_bytes(padded[i:i+4], 'big'))
+    
+    # Extend to 128 words if needed
+    while len(W) < 128:
+        W.append(0)
+    
+    # Tetra-PoW: 128 rounds with Ω′ B2 nonlinear feedback
+    for i in range(128):
+        # Sigma functions
+        S1 = ((H >> 6) | (H << 26)) ^ ((H >> 11) | (H << 21)) ^ ((H >> 25) | (H << 7))
+        ch = (E & F) ^ (~E & G)
+        
+        # Ω′ quantum-temporal feedback term
+        omega_feedback = ((A ^ B ^ C) ^ ((D << 3) & MASK) ^ ((E >> 2) & MASK)) & MASK
+        
+        temp1 = (H + S1 + ch + K[i] + W[i % len(W)] + omega_feedback) & MASK
+        
+        S0 = ((A >> 2) | (A << 30)) ^ ((A >> 13) | (A << 19)) ^ ((A >> 22) | (A << 10))
+        maj = (A & B) ^ (A & C) ^ (B & C)
+        temp2 = (S0 + maj) & MASK
+        
+        # Update registers with Tetra-PoW mixing
+        H = G
+        G = F
+        F = E
+        E = (D + temp1) & MASK
+        D = C
+        C = B
+        B = A
+        A = (temp1 + temp2) & MASK
+    
+    # Finalize hash (combine state registers)
+    final_hash = b''.join([
+        (A & MASK).to_bytes(4, 'big'),
+        (B & MASK).to_bytes(4, 'big'),
+        (C & MASK).to_bytes(4, 'big'),
+        (D & MASK).to_bytes(4, 'big'),
+        (E & MASK).to_bytes(4, 'big'),
+        (F & MASK).to_bytes(4, 'big'),
+        (G & MASK).to_bytes(4, 'big'),
+        (H & MASK).to_bytes(4, 'big'),
+    ])
+    
+    return final_hash
+
+
 def bits_to_target(bits: bytes) -> int:
     """
     Convert Stratum pool `bits` to a target value.
@@ -160,7 +239,7 @@ class AsyncStratumClient:
 
 class AsyncMergeMiner:
     """
-    Asynchronous Merge Miner for Bitcoin and RollPoW.
+    Asynchronous Merge Miner for Bitcoin, RollPoW, and Tetra-PoW.
     """
 
     def __init__(self, stratum_client: AsyncStratumClient, message: bytes):
@@ -169,6 +248,7 @@ class AsyncMergeMiner:
         self.start_time = time.time()
         self.blocks_mined_btc = 0
         self.blocks_mined_rollpow = 0
+        self.blocks_mined_tetrapow = 0
 
     def log_progress(self, nonce: int):
         """
@@ -176,13 +256,13 @@ class AsyncMergeMiner:
         """
         elapsed_time = time.time() - self.start_time
         logging.info(f"[Progress] Elapsed Time: {elapsed_time:.2f}s, Nonce: {nonce}")
-        logging.info(f"BTC Blocks Found: {self.blocks_mined_btc}, RollPoW Blocks Found: {self.blocks_mined_rollpow}")
+        logging.info(f"BTC Blocks Found: {self.blocks_mined_btc}, RollPoW Blocks Found: {self.blocks_mined_rollpow}, Tetra-PoW Blocks Found: {self.blocks_mined_tetrapow}")
 
     async def mine(self, iterations: int = 100000, log_interval: int = 500):
         """
-        Perform asynchronous mining for Bitcoin and RollPoW.
+        Perform asynchronous mining for Bitcoin, RollPoW, and Tetra-PoW.
         """
-        logging.info("Starting asynchronous merge mining...")
+        logging.info("Starting asynchronous merge mining (BTC + RollPoW + Tetra-PoW)...")
         nonce = 0
 
         while nonce < iterations:
@@ -214,8 +294,8 @@ class AsyncMergeMiner:
                 )
                 self.blocks_mined_btc += 1
 
-            # For simplicity, reuse RollPoW mining logic
-            rollpow_target = btc_target >> 1  # Assume RollPoW has a slightly looser difficulty (higher target)
+            # RollPoW mining logic
+            rollpow_target = btc_target << 1  # RollPoW has easier difficulty (higher target value)
             block_hash_rollpow = sha256d(block_header[::-1])  # Use reversed payload for variation
             if int.from_bytes(block_hash_rollpow, "big") < rollpow_target:
                 logging.info(f"RollPoW Block Mined! Nonce: {nonce}, Height: {block_height}, Hash: {block_hash_rollpow.hex()}")
@@ -223,6 +303,16 @@ class AsyncMergeMiner:
                     {"type": "RollPoW", "nonce": nonce, "height": block_height, "hash": block_hash_rollpow.hex()}, BLOCKS_FILE
                 )
                 self.blocks_mined_rollpow += 1
+
+            # Tetra-PoW mining logic (quantum-temporal 128-round hash)
+            tetrapow_target = btc_target << 2  # Tetra-PoW has even easier difficulty (higher target value)
+            block_hash_tetrapow = tetrapow_hash(block_header)
+            if int.from_bytes(block_hash_tetrapow, "big") < tetrapow_target:
+                logging.info(f"Tetra-PoW Block Mined! Nonce: {nonce}, Height: {block_height}, Hash: {block_hash_tetrapow.hex()}")
+                save_block_to_file(
+                    {"type": "Tetra-PoW", "nonce": nonce, "height": block_height, "hash": block_hash_tetrapow.hex()}, BLOCKS_FILE
+                )
+                self.blocks_mined_tetrapow += 1
 
             nonce += 1
 
@@ -233,10 +323,10 @@ class AsyncMergeMiner:
 async def main():
     import os
     
-    logging.info("🚀 Launching Asynchronous Merge Miner...")
+    logging.info("🚀 Launching Asynchronous Merge Miner (BTC + RollPoW + Tetra-PoW)...")
 
     # Prepare mining message
-    mining_message = b"Asynchronous Bitcoin and RollPoW merge mining"
+    mining_message = b"Asynchronous Bitcoin, RollPoW, and Tetra-PoW merge mining"
     logging.info(f"Mining payload: {mining_message.decode()}")
 
     # Get mining configuration from environment or use defaults

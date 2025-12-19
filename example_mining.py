@@ -24,7 +24,7 @@ async def main():
     print(f"Mining address: {mining_address}")
     
     # Create mining message (can be customized)
-    mining_message = b"Custom merge mining operation"
+    mining_message = b"Custom merge mining: BTC + RollPoW + Tetra-PoW"
     
     # Initialize Stratum client
     client = AsyncStratumClient(pool_host, pool_port, mining_address, mining_password)
@@ -60,8 +60,11 @@ if __name__ == "__main__":
     print("=" * 60)
     print("Asynchronous Merge Miner - Example")
     print("=" * 60)
-    print("\nThis is a demonstration of the merge mining capabilities.")
-    print("For production use, configure via environment variables:")
+    print("\nMining three chains simultaneously:")
+    print("  • Bitcoin (BTC) - Standard SHA256d")
+    print("  • RollPoW - Reversed SHA256d")
+    print("  • Tetra-PoW - Quantum-temporal 128-round hash")
+    print("\nFor production use, configure via environment variables:")
     print("  export MINING_ADDRESS='your_address.worker'")
     print("  export MINING_POOL_HOST='your.pool.com'")
     print("\nPress Ctrl+C to stop mining.\n")

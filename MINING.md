@@ -2,13 +2,14 @@
 
 ## Overview
 
-The asynchronous merge miner (`async_merge_miner.py`) is a Python implementation that enables simultaneous mining of Bitcoin and RollPoW chains using the Stratum protocol. It leverages Python's `asyncio` for efficient, non-blocking I/O operations.
+The asynchronous merge miner (`async_merge_miner.py`) is a Python implementation that enables simultaneous mining of Bitcoin, RollPoW, and Tetra-PoW chains using the Stratum protocol. It leverages Python's `asyncio` for efficient, non-blocking I/O operations.
 
 ## Features
 
 - **Asynchronous Operation**: Uses async/await patterns for efficient network I/O
 - **Stratum Protocol Support**: Connects to standard Bitcoin mining pools
-- **Merge Mining**: Mines both Bitcoin (BTC) and RollPoW simultaneously
+- **Merge Mining**: Mines Bitcoin (BTC), RollPoW, and Tetra-PoW simultaneously
+- **Tetra-PoW**: Quantum-temporal proof-of-work with 128-round extended SHA-256 and Ω′ B2 nonlinear feedback
 - **Block Persistence**: Saves successfully mined blocks to JSON storage
 - **Configurable**: Environment variable support for pool credentials
 - **Progress Logging**: Tracks mining statistics and progress
@@ -91,6 +92,12 @@ Mined blocks are saved to `found_blocks/pool_merge_mining_blocks.json` in the fo
         "nonce": 12346,
         "height": 800000,
         "hash": "0000000000000000000..."
+    },
+    {
+        "type": "Tetra-PoW",
+        "nonce": 12347,
+        "height": 800000,
+        "hash": "0000000000000000000..."
     }
 ]
 ```
@@ -105,11 +112,12 @@ Mined blocks are saved to `found_blocks/pool_merge_mining_blocks.json` in the fo
    - `submit_share()`: Submits valid shares to the pool
 
 2. **AsyncMergeMiner**: Implements the merge mining logic
-   - `mine()`: Main mining loop that tests nonces against both BTC and RollPoW targets
-   - `log_progress()`: Periodic progress logging
+   - `mine()`: Main mining loop that tests nonces against BTC, RollPoW, and Tetra-PoW targets
+   - `log_progress()`: Periodic progress logging with stats for all three chains
 
 3. **Utility Functions**:
-   - `sha256d()`: Double SHA256 hashing for proof-of-work
+   - `sha256d()`: Double SHA256 hashing for Bitcoin proof-of-work
+   - `tetrapow_hash()`: Ω′ Δ18 Tetra-PoW quantum-temporal hash (128-round extended SHA-256)
    - `bits_to_target()`: Converts difficulty bits to target value
    - `save_block_to_file()`: Persists mined blocks to JSON
 
@@ -119,8 +127,18 @@ Mined blocks are saved to `found_blocks/pool_merge_mining_blocks.json` in the fo
 2. Receive mining job with difficulty target and block template
 3. Increment nonce and compute block hash
 4. Check if hash meets Bitcoin target → submit share if valid
-5. Check if hash meets RollPoW target → save block if valid
-6. Repeat until iteration limit reached
+5. Check if hash meets RollPoW target (relaxed difficulty) → save block if valid
+6. Check if hash meets Tetra-PoW target (even more relaxed) → save block if valid
+7. Repeat until iteration limit reached
+
+### Tetra-PoW Algorithm
+
+Tetra-PoW is a quantum-temporal proof-of-work algorithm with the following characteristics:
+
+- **128 Rounds**: Extended from SHA-256's 64 rounds for enhanced security
+- **Ω′ B2 Nonlinear Feedback**: Quantum feedback term `(A^B^C)^((D<<3)&MASK)^((E>>2)&MASK)`
+- **Temporal Mixing**: State registers are updated with enhanced mixing functions
+- **Target Difficulty**: Set to `btc_target >> 2` (easier than Bitcoin and RollPoW)
 
 ## Logging
 
