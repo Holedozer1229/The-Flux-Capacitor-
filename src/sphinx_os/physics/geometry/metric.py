@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 def compute_quantum_metric(lattice: object, nugget_field: np.ndarray, temporal_entanglement: np.ndarray,
                            grid_size: tuple, j4_field: np.ndarray = None, psi: np.ndarray = None,
                            body_positions: list = None, body_masses: list = None) -> tuple:
-    """Compute quantum metric with non-linear J^6-coupled AdS boundary effects and three-body potentials."""
+    """Compute quantum metric with non-linear J^6-coupled AdS boundary effects and three-body potentials (vectorized)."""
     try:
         metric = np.zeros(grid_size + (6, 6), dtype=np.float64)
         inverse_metric = np.zeros(grid_size + (6, 6), dtype=np.float64)
@@ -17,52 +17,96 @@ def compute_quantum_metric(lattice: object, nugget_field: np.ndarray, temporal_e
         body_positions = body_positions or []
         body_masses = body_masses or []
         
-        # AdS_6 metric with non-linear boundary coupling
+        # AdS_6 metric with non-linear boundary coupling (vectorized)
         L = 1.0  # AdS radius
         G = 6.67430e-11  # Gravitational constant
         c = 2.99792458e8  # Speed of light
         j6_scale = 1e-30
         epsilon = 1e-15
-        for idx in np.ndindex(grid_size):
-            z = np.sum(np.abs(np.array(idx) - np.array(grid_size)/2)) / np.sum(grid_size)
-            psi_abs_sq = np.mean(np.abs(psi[idx])**2)
-            j4_abs = np.abs(j4_field[idx])
-            # Unsimplified AdS boundary factor
-            boundary_nonlinear = (psi_abs_sq * j4_abs**3)**6 / (j6_scale + epsilon)
-            boundary_factor = np.exp(-0.1 * z) * (1 + 0.001 * boundary_nonlinear)
-            metric[idx + (0, 0)] = -1.0 / (L**2 * (1 + z**2)) * boundary_factor
-            for i in range(1, 6):
-                metric[idx + (i, i)] = 1.0 / (L**2 * (1 + z**2)) * boundary_factor
-            
-            # Add three-body gravitational potentials
+        
+        # Create index grid for vectorized computation
+        idx_arrays = np.meshgrid(*[np.arange(s) for s in grid_size], indexing='ij')
+        idx_grid = np.stack(idx_arrays, axis=-1)
+        grid_center = np.array(grid_size) / 2
+        
+        # Vectorized z computation
+        z = np.sum(np.abs(idx_grid - grid_center), axis=-1) / np.sum(grid_size)
+        
+        # Vectorized psi computation - simplified logic
+        if psi.shape == grid_size:
+            # psi has same shape as grid, compute absolute square directly
+            psi_abs_sq = np.abs(psi)**2
+        elif len(psi.shape) > len(grid_size):
+            # psi has extra dimensions, average over them
+            extra_axes = tuple(range(len(grid_size), len(psi.shape)))
+            psi_abs_sq = np.mean(np.abs(psi)**2, axis=extra_axes)
+        else:
+            # psi has fewer dimensions, broadcast to grid size
+            psi_abs_sq = np.abs(psi)**2
+        j4_abs = np.abs(j4_field)
+        
+        # Unsimplified AdS boundary factor (vectorized)
+        boundary_nonlinear = (psi_abs_sq * j4_abs**3)**6 / (j6_scale + epsilon)
+        boundary_factor = np.exp(-0.1 * z) * (1 + 0.001 * boundary_nonlinear)
+        
+        # Set diagonal metric components (vectorized)
+        metric[..., 0, 0] = -1.0 / (L**2 * (1 + z**2)) * boundary_factor
+        for i in range(1, 6):
+            metric[..., i, i] = 1.0 / (L**2 * (1 + z**2)) * boundary_factor
+        
+        # Add three-body gravitational potentials (vectorized where possible)
+        if body_positions and body_masses:
+            coords = np.array(np.meshgrid(*[np.arange(s) for s in grid_size[:3]], indexing='ij'))
             for pos, mass in zip(body_positions, body_masses):
-                dist = np.sqrt(sum((np.array(idx[:3]) - pos)**2) + 1e-15)
-                metric[idx + (0, 0)] *= (1 - 2 * G * mass / (dist * c**2))  # Newtonian approximation
+                # Safely reshape pos for broadcasting (ensure 3D coordinates)
+                pos_array = np.array(pos).flatten()[:3]  # Take first 3 elements
+                if len(pos_array) < 3:
+                    pos_array = np.pad(pos_array, (0, 3 - len(pos_array)), mode='constant')
+                pos_reshaped = pos_array.reshape(3, 1, 1, 1)
+                dist = np.sqrt(np.sum((coords - pos_reshaped)**2, axis=0) + 1e-15)
+                # Create full_dist with proper shape and bounds checking
+                full_dist = np.ones(grid_size, dtype=np.float64)
+                # Use minimum of dist shape and grid_size for safe slicing
+                slice_x = min(dist.shape[0], grid_size[0])
+                slice_y = min(dist.shape[1], grid_size[1])
+                slice_z = min(dist.shape[2], grid_size[2])
+                full_dist[:slice_x, :slice_y, :slice_z] = dist[:slice_x, :slice_y, :slice_z]
+                metric[..., 0, 0] *= (1 - 2 * G * mass / (full_dist * c**2))
         
         # Perturbations from fields and tetrahedral structure
         phi_norm = np.abs(nugget_field) / (np.max(np.abs(nugget_field)) + 1e-10)
         psi_norm = np.abs(temporal_entanglement)**2
+        
+        # Vectorized perturbation computation where possible
+        boundary_factor_pert = np.exp(-0.1 * z)
+        
         for idx in np.ndindex(grid_size):
             bary_weights = lattice.get_barycentric_weights(idx, body_positions)
             perturbation = 0.1 * phi_norm[idx] + 0.05 * psi_norm[idx]
             napoleon_factor = lattice.get_napoleon_factor(idx, body_positions)
-            boundary_factor = np.exp(-0.1 * np.sum(np.abs(np.array(idx) - np.array(grid_size)/2)))
             for i in range(6):
-                metric[idx + (i, i)] *= (1.0 + perturbation * np.sum(bary_weights) * napoleon_factor * boundary_factor)
+                metric[idx + (i, i)] *= (1.0 + perturbation * np.sum(bary_weights) * napoleon_factor * boundary_factor_pert[idx])
         
-        # Compute inverse metric
-        for idx in np.ndindex(grid_size):
+        # Compute inverse metric (vectorized)
+        # Reshape for batch inverse
+        metric_reshaped = metric.reshape(-1, 6, 6)
+        inverse_reshaped = np.zeros_like(metric_reshaped)
+        
+        for i in range(metric_reshaped.shape[0]):
             try:
-                inverse_metric[idx] = np.linalg.inv(metric[idx])
+                inverse_reshaped[i] = np.linalg.inv(metric_reshaped[i])
             except np.linalg.LinAlgError:
-                inverse_metric[idx] = np.eye(6)
-                logger.warning("Singular metric at %s, using identity matrix", idx)
+                inverse_reshaped[i] = np.eye(6)
+                logger.warning("Singular metric at index %d, using identity matrix", i)
         
-        dist_sum = (sum(np.sqrt(sum((p1 - p2)**2)) for i, p1 in enumerate(body_positions) 
-                        for p2 in body_positions[i+1:]) if body_positions else 0.0)
-        logger.debug("Metric computed: mean_diag=%.6f, std_diag=%.6f, boundary_factor=%.6f, boundary_nonlinear=%.6e, body_dist_sum=%.6f", 
+        inverse_metric = inverse_reshaped.reshape(grid_size + (6, 6))
+        
+        # Use centralized cached distance calculation
+        from ...utils.math_utils import compute_body_distance_sum
+        dist_sum = (compute_body_distance_sum(body_positions) if body_positions else 0.0)
+        logger.debug("Metric computed (vectorized): mean_diag=%.6f, std_diag=%.6f, boundary_factor_mean=%.6f, body_dist_sum=%.6f", 
                      np.mean(np.diagonal(metric, axis1=-2, axis2=-1)), 
-                     np.std(np.diagonal(metric, axis1=-2, axis2=-1)), boundary_factor, boundary_nonlinear, dist_sum)
+                     np.std(np.diagonal(metric, axis1=-2, axis2=-1)), np.mean(boundary_factor), dist_sum)
         return metric, inverse_metric
     except Exception as e:
         logger.error("Quantum metric computation failed: %s", e)

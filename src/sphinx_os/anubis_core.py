@@ -62,6 +62,8 @@ class UnifiedSpacetimeSimulator:
                          body_positions: list = None) -> float:
         """Compute CTC term with unsimplified J^6-coupled AdS boundary and three-body effects."""
         try:
+            from .utils.math_utils import compute_body_distance_sum
+            
             ctc_params = ctc_params or {'tau': 1.0, 'kappa_ctc': 0.5}
             tau = ctc_params.get('tau', 1.0)
             kappa_ctc = ctc_params.get('kappa_ctc', 0.5)
@@ -73,13 +75,13 @@ class UnifiedSpacetimeSimulator:
             ctc_term = kappa_ctc * np.sin(phi * t / tau) * j6_modulation * boundary_factor
             
             # Three-body distance modulation
+            dist_sum = 0.0
             if body_positions:
-                dist_sum = sum(np.sqrt(sum((p1 - p2)**2)) for i, p1 in enumerate(body_positions) 
-                               for p2 in body_positions[i+1:])
+                dist_sum = compute_body_distance_sum(body_positions)
                 ctc_term *= np.exp(-0.01 * dist_sum)  # Modulate by inter-body distances
             
-            logger.debug("CTC term computed: ctc_term=%.6f, boundary_factor=%.6f, dist_sum=%s", 
-                         ctc_term, boundary_factor, dist_sum if body_positions else "N/A")
+            logger.debug("CTC term computed: ctc_term=%.6f, boundary_factor=%.6f, dist_sum=%.6f", 
+                         ctc_term, boundary_factor, dist_sum)
             return ctc_term
         except Exception as e:
             logger.error("CTC term computation failed: %s", e)

@@ -35,3 +35,14 @@ dist/
 
 # Windows system files
 Thumbs.db
+EOF
+
+# Remove previously tracked outputs (if any)
+git rm -r --cached results/ *.log *.npy *.png 2>/dev/null || true
+git commit -m "Remove previously tracked output files now excluded by .gitignore"
+
+# Commit .gitignore
+git add .gitignore
+git commit -m "Add minimal .gitignore to exclude simulation outputs and temporary files"
+git push origin main
+test_optimizations.py

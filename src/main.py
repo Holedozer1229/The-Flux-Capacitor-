@@ -14,6 +14,7 @@ from sphinx_os.entanglement_cache import EntanglementCache
 from sphinx_os.constants import Constants
 from sphinx_os.plotting import plot_fft, plot_entanglement_entropy, plot_mobius_spiral, plot_tetrahedron, plot_j6_validation, plot_rio_validation, plot_graviton_field
 from sphinx_os.visualization.visualize import visualize_rio_field, visualize_boundary_correlations
+from sphinx_os.utils.math_utils import compute_body_distance_sum
 from interface.gui import FluxGUI
 from itertools import product
 
@@ -84,6 +85,9 @@ class FluxCapacitor:
         self.initialize_spin_network()
         grid_center = np.array(self.grid_size) / 2
 
+        # Performance optimization: Generate configuration grid
+        # Full grid would be 3*3*3*3*3 (J6) * 3*3*2*2*3*2*2*2 (CTC) * 3 (boundary) = 69,984 combinations
+        # Limited to first 2 of each for performance (2 * 2 * 3 = 12 total iterations)
         j6_configs = [
             {'kappa_j6': kj, 'kappa_j6_eff': kje, 'j6_scaling_factor': jsf, 'epsilon': eps, 'resonance_frequency': rf}
             for kj in Constants.J6_PARAM_RANGES['kappa_j6']
@@ -107,6 +111,7 @@ class FluxCapacitor:
         boundary_factors = [0.8, 0.9, 1.0]
         
         results = []
+        # Performance optimization: Limit to first 2 configurations for testing
         for j6_config in j6_configs[:2]:
             self.harmonic_gen.kappa_j6 = j6_config['kappa_j6']
             self.harmonic_gen.kappa_j6_eff = j6_config['kappa_j6_eff']
@@ -246,8 +251,7 @@ class FluxCapacitor:
         # Save trajectories
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         np.save(os.path.join(self.results_dir, f'trajectories_{timestamp}.npy'), np.array(trajectories))
-        dist_sum = sum(np.sqrt(sum((p1 - p2)**2)) for i, p1 in enumerate(body_positions) 
-                       for p2 in body_positions[i+1:])
+        dist_sum = compute_body_distance_sum(body_positions)
         logger.info("Three-body trajectories saved to %s, dist_sum=%.6f", 
                     os.path.join(self.results_dir, f'trajectories_{timestamp}.npy'), dist_sum)
         return audio_output
